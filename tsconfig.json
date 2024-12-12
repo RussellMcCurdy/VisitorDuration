@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2016",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".", // Allows for cleaner imports
+    "typeRoots": ["./node_modules/@types", "./types"]
+  },
+  "include": ["src/**/*", "types.d.ts"], // Ensure custom types are included
+  "exclude": ["node_modules"]
+}
+
