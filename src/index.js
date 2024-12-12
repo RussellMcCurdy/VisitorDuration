@@ -16,55 +16,67 @@ const express_1 = __importDefault(require("express"));
 const sdk = require('@envoy/envoy-integrations-sdk');
 const { envoyMiddleware, errorMiddleware } = sdk;
 const app = express_1.default();
-// Use the correct middleware from the SDK
+// Middleware for Envoy
 app.use(envoyMiddleware());
-// Define routes
-app.post('/your-route', (req, res) => {
-    const envoy = req.envoy; // Access the SDK added by envoyMiddleware
-    console.log(envoy);
-    res.send('Middleware works!');
-});
-app.post('/hello-options', (req, res) => {
-    res.send([
-        { label: 'Hello', value: 'Hello' },
-        { label: 'Hola', value: 'Hola' },
-        { label: 'Aloha', value: 'Aloha' },
-    ]);
-});
-app.post('/goodbye-options', (req, res) => {
-    res.send([
-        { label: 'Goodbye', value: 'Goodbye' },
-        { label: 'Adios', value: 'Adios' },
-        { label: 'Aloha', value: 'Aloha' },
-    ]);
-});
-app.use((req, res, next) => {
-    console.log('Envoy Middleware:', req.envoy); // Check if `envoy` is being added
-    next();
-});
-app.post('/visitor-sign-in', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+// Validation URL route
+app.post('/validation-url', (req, res) => {
     const envoy = req.envoy;
-    if (!envoy) {
-        return res.status(400).send({ error: 'Envoy object is missing from the request' });
+    if (!envoy || !envoy.payload) {
+        console.error('Invalid payload received in validation step.');
+        return res.status(400).send({ message: 'Invalid payload received.' });
     }
-    const { job, meta, payload } = envoy;
-    const hello = meta.config.HELLO;
-    const visitorName = payload.attributes['full-name'];
-    const message = `${hello} ${visitorName}!`; // Custom greeting
-    yield job.attach({ label: 'Hello', value: message });
-    res.send({ hello });
-}));
+    const payload = envoy.payload;
+    const duration = Number(payload.DURATION);
+    if (isNaN(duration) || duration < 0 || duration > 180) {
+        console.error('Invalid duration value:', payload.DURATION);
+        return res.status(400).send({ message: 'Please enter a valid duration between 0 and 180 minutes.' });
+    }
+    console.log('Saving DURATION to config:', duration);
+    res.send({ DURATION: duration });
+});
+// Visitor sign-out route
 app.post('/visitor-sign-out', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const envoy = req.envoy;
     if (!envoy) {
-        return res.status(400).send({ error: 'Envoy object is missing from the request' });
+        return res.status(400).send({ error: 'Envoy object is missing from the request.' });
     }
     const { job, meta, payload } = envoy;
-    const goodbye = meta.config.GOODBYE;
-    const visitorName = payload.attributes['full-name'];
-    const message = `${goodbye} ${visitorName}!`;
-    yield job.attach({ label: 'Goodbye', value: message });
-    res.send({ goodbye });
+    try {
+        // Extract and validate duration from meta.config
+        const durationAllowed = Number(meta.config.DURATION);
+        if (isNaN(durationAllowed) || durationAllowed < 0 || durationAllowed > 180) {
+            console.error('Invalid duration configuration:', meta.config.DURATION);
+            return res.status(400).send({
+                error: 'Invalid configuration for allowed duration. Please ensure it is between 0 and 180 minutes.',
+            });
+        }
+        // Extract and validate sign-in and sign-out times
+        const { 'full-name': visitorName, 'signed-in-at': signInTimeStr, 'signed-out-at': signOutTimeStr } = payload.attributes;
+        if (!signInTimeStr || !signOutTimeStr) {
+            console.error('Missing sign-in or sign-out time.', { signInTimeStr, signOutTimeStr });
+            return res.status(400).send({ error: 'Sign-in or sign-out time is missing from the payload.' });
+        }
+        const signInTime = new Date(signInTimeStr);
+        const signOutTime = new Date(signOutTimeStr);
+        if (isNaN(signInTime.getTime()) || isNaN(signOutTime.getTime())) {
+            console.error('Invalid date format for sign-in or sign-out time.', { signInTimeStr, signOutTimeStr });
+            return res.status(400).send({ error: 'Invalid date format for sign-in or sign-out time.' });
+        }
+        // Calculate the actual duration of the visit
+        const actualDuration = (signOutTime.getTime() - signInTime.getTime()) / 60000;
+        let message = `Visitor ${visitorName} stayed for ${actualDuration.toFixed(2)} minutes.`;
+        if (actualDuration > durationAllowed) {
+            message += ` Warning: This exceeds the allowed duration of ${durationAllowed} minutes.`;
+        }
+        // Attach the message to the job
+        yield job.attach({ label: 'Duration', value: message });
+        console.log('Message attached to job:', { label: 'Duration', value: message });
+        res.send({ message });
+    }
+    catch (error) {
+        console.error('Error processing visitor sign-out:', error);
+        res.status(500).send({ error: 'An error occurred while processing the visitor sign-out.' });
+    }
 }));
 // Use the error middleware
 app.use(errorMiddleware());
